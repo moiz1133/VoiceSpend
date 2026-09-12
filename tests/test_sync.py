@@ -15,7 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.sync import get_current_db_user
+from app.api.deps import get_current_db_user
 from app.core.security import AuthUser, get_current_user
 from app.db.session import get_db
 from app.main import create_app
