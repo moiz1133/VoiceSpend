@@ -4,14 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas._validators import normalize_currency_code
 from app.schemas.enums import ParseStatus
-
-
-def _normalize_currency(value: str) -> str:
-    value = value.strip().upper()
-    if len(value) != 3:
-        raise ValueError("currency code must be exactly 3 letters (ISO-4217)")
-    return value
 
 
 class ExpenseRead(BaseModel):
@@ -58,7 +52,7 @@ class ExpenseCreate(BaseModel):
     @field_validator("currency_original")
     @classmethod
     def _validate_currency_original(cls, value: str) -> str:
-        return _normalize_currency(value)
+        return normalize_currency_code(value)
 
 
 class ExpenseUpdate(BaseModel):
@@ -84,4 +78,4 @@ class ExpenseUpdate(BaseModel):
     @field_validator("currency_original", "currency_base")
     @classmethod
     def _validate_currency(cls, value: str | None) -> str | None:
-        return _normalize_currency(value) if value is not None else None
+        return normalize_currency_code(value) if value is not None else None

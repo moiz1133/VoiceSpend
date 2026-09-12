@@ -37,3 +37,9 @@ class Store(StrEnum):
     PLAY_STORE = "play_store"
     STRIPE = "stripe"
     LEMONSQUEEZY = "lemonsqueezy"
+
+
+class SyncRecordStatus(StrEnum):
+    APPLIED = "applied"
+    STALE_IGNORED = "stale_ignored"
+    REJECTED = "rejected"
