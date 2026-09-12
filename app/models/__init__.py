@@ -1,1 +1,21 @@
-# TODO(Phase 2): SQLAlchemy ORM models (Expense, User, SyncLog, etc.) live here.
+"""SQLAlchemy ORM models. Imported for their side effect of registering on
+Base.metadata — required for Alembic autogenerate to see every table.
+"""
+
+from app.models.category import Category
+from app.models.device import Device
+from app.models.entitlement import Entitlement
+from app.models.expense import Expense
+from app.models.fx_rate import FxRate
+from app.models.usage_counter import UsageCounter
+from app.models.user import User
+
+__all__ = [
+    "Category",
+    "Device",
+    "Entitlement",
+    "Expense",
+    "FxRate",
+    "UsageCounter",
+    "User",
+]

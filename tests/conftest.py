@@ -11,15 +11,22 @@ from collections.abc import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/test")
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql+asyncpg://voicespend:voicespend@localhost:5432/voicespend"
+)
 os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
 
+import app.models  # noqa: E402, F401 — registers all models on Base.metadata
 from app.cache.redis import get_redis  # noqa: E402
+from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.models import Device, User  # noqa: E402
+from app.schemas.enums import Platform  # noqa: E402
 
 
 class FakeResult:
@@ -93,3 +100,53 @@ async def unhealthy_client(app_unhealthy) -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app_unhealthy)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+
+@pytest_asyncio.fixture(scope="session")
+async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
+    """Real Postgres engine for model round-trip tests — requires a running
+    Postgres reachable at DATABASE_URL (e.g. `docker compose up -d postgres`).
+    Builds the schema straight from the models rather than via Alembic, so
+    these tests fail on model/DB mismatches independently of migration state.
+    """
+    engine = create_async_engine(os.environ["DATABASE_URL"])
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """One test = one outer transaction, rolled back afterward — isolates
+    tests from each other without recreating the schema every time.
+    """
+    async with db_engine.connect() as conn:
+        outer_tx = await conn.begin()
+        session = AsyncSession(
+            bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
+        )
+        try:
+            yield session
+        finally:
+            await session.close()
+            await outer_tx.rollback()
+
+
+@pytest_asyncio.fixture
+async def user(db_session: AsyncSession) -> User:
+    user = User()
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def device(db_session: AsyncSession, user: User) -> Device:
+    device = Device(user_id=user.id, platform=Platform.IOS)
+    db_session.add(device)
+    await db_session.commit()
+    return device
