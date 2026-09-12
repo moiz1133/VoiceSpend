@@ -2,10 +2,10 @@
 
 Voice-first, offline-first AI expense tracker — backend service.
 
-> **Phase 0 status**: this is project skeleton only — infra wiring and auth
-> plumbing. There are no expense/sync/parse/billing endpoints yet; see the
-> `TODO(Phase 2)` markers in `app/models/`, `app/schemas/`, and
-> `app/api/v1/router.py`.
+> **Phase 2 status**: the data model is in place — SQLAlchemy models,
+> Pydantic schemas, and one Alembic migration for all 7 tables (see
+> `app/models/`, `app/schemas/`). There are still no expense/sync/parse/
+> billing endpoints; see `app/api/v1/router.py`.
 
 ## Architecture note: Supabase for Auth/Storage, our own layer for data
 
@@ -67,19 +67,31 @@ uv run uvicorn app.main:app --reload
 ## Migrations
 
 Migrations run with Alembic, configured for the async engine
-(`alembic/env.py`). The initial migration is a no-op that proves the
-toolchain runs end to end — no tables exist yet (Phase 2 adds the first real
-schema).
+(`alembic/env.py`). The single initial migration creates all 7 tables
+(`users`, `devices`, `expenses`, `categories`, `fx_rates`, `entitlements`,
+`usage_counters`) with their indexes and constraints, and seeds the 8
+default system categories.
 
 ```bash
-uv run alembic upgrade head          # apply migrations
-uv run alembic revision --autogenerate -m "add expenses table"   # Phase 2+
-uv run alembic downgrade -1          # roll back one revision
+uv run alembic upgrade head                                  # apply migrations
+uv run alembic revision --autogenerate -m "add some_table"   # future changes
+uv run alembic downgrade -1                                  # roll back one revision
 ```
+
+After `alembic upgrade head`, `alembic revision --autogenerate` should
+always produce an empty diff — if it doesn't, the models and the migration
+have drifted and one of them needs fixing.
 
 ## Tests, lint, types
 
+Model round-trip tests (`tests/test_models.py`, `tests/test_schemas.py`)
+need a real Postgres reachable at `DATABASE_URL` — they build the schema
+straight from the SQLAlchemy models (independent of Alembic) so they catch
+model/DB mismatches directly. Health-check tests use fakes and don't need
+it. Start Postgres first:
+
 ```bash
+docker compose up -d postgres
 uv run pytest
 uv run ruff check .
 uv run mypy app

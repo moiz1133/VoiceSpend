@@ -6,12 +6,10 @@ from logging.config import fileConfig
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import app.models  # noqa: F401 — registers all models on Base.metadata
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
-
-# Import models here so they're registered on Base.metadata for autogenerate.
-# TODO(Phase 2): import app.models once ORM models exist.
 
 config = context.config
 
