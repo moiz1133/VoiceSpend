@@ -2,9 +2,10 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import health
+from app.api.v1 import health, sync
 
 api_router = APIRouter()
 api_router.include_router(health.router, prefix="/health")
+api_router.include_router(sync.router)
 
-# TODO(Phase 2+): include expenses, sync, parse, and billing routers here.
+# TODO(Phase 4+): parse (LLM), FX, and billing routers land here.

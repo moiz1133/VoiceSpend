@@ -2,7 +2,17 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CHAR, BigInteger, DateTime, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import (
+    CHAR,
+    BigInteger,
+    DateTime,
+    FetchedValue,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -51,8 +61,23 @@ class Expense(UUIDMixin, TimestampMixin, Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Sync watermark — assigned exclusively by the trg_expenses_server_seq
+    # DB trigger (see the server_seq migration), on every insert AND every
+    # update. server_default=FetchedValue() tells the ORM this column is
+    # populated by the database, not by app code: never include it in an
+    # INSERT/UPDATE payload, always re-fetch it after writing.
+    server_seq: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=FetchedValue()
+    )
+
 
 # Defined post-class (rather than in __table_args__) so `.desc()` can be used
 # for the dashboard's "most recent first" access pattern.
 Index("ix_expenses_user_id_spent_at", Expense.user_id, Expense.spent_at.desc())
 Index("ix_expenses_user_id_updated_at", Expense.user_id, Expense.updated_at)
+
+# Sync pull cursor: WHERE user_id = :user AND server_seq > :since ORDER BY
+# server_seq. Declared here (built via op.create_index in the migration, not
+# raw SQL) so autogenerate stays clean for it — only the trigger/sequence/
+# function backing server_seq itself have no ORM-metadata equivalent.
+Index("ix_expenses_user_server_seq", Expense.user_id, Expense.server_seq)

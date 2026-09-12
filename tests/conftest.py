@@ -5,13 +5,18 @@ FastAPI app with the DB/Redis dependencies swapped for lightweight fakes, so
 tests don't require Docker/Postgres/Redis to be running.
 """
 
+import asyncio
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+
+from alembic import command
 
 os.environ.setdefault(
     "DATABASE_URL", "postgresql+asyncpg://voicespend:voicespend@localhost:5432/voicespend"
@@ -22,11 +27,24 @@ os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
 
 import app.models  # noqa: E402, F401 — registers all models on Base.metadata
 from app.cache.redis import get_redis  # noqa: E402
-from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Device, User  # noqa: E402
 from app.schemas.enums import Platform  # noqa: E402
+
+_ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
+
+
+def _alembic_config() -> Config:
+    return Config(str(_ALEMBIC_INI))
+
+
+def _run_upgrade() -> None:
+    command.upgrade(_alembic_config(), "head")
+
+
+def _run_downgrade() -> None:
+    command.downgrade(_alembic_config(), "base")
 
 
 class FakeResult:
@@ -106,17 +124,20 @@ async def unhealthy_client(app_unhealthy) -> AsyncGenerator[AsyncClient, None]:
 async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
     """Real Postgres engine for model round-trip tests — requires a running
     Postgres reachable at DATABASE_URL (e.g. `docker compose up -d postgres`).
-    Builds the schema straight from the models rather than via Alembic, so
-    these tests fail on model/DB mismatches independently of migration state.
+
+    Builds the schema by running the real Alembic migrations (in a worker
+    thread — alembic/env.py does its own `asyncio.run`, which can't nest
+    inside this fixture's already-running loop), not `Base.metadata.
+    create_all()`. Some DB objects (expenses_sync_seq, the server_seq
+    trigger) are hand-written raw SQL with no ORM-metadata equivalent —
+    only running the actual migrations creates them, so this is the only
+    way the sync tests see real trigger behavior, not just table shape.
     """
+    await asyncio.to_thread(_run_upgrade)
     engine = create_async_engine(os.environ["DATABASE_URL"])
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
     yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
+    await asyncio.to_thread(_run_downgrade)
 
 
 @pytest_asyncio.fixture

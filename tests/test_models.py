@@ -162,23 +162,28 @@ async def test_category_partial_unique_indexes(db_session: AsyncSession, user: U
     # AsyncSession forbids outside an explicit await.
     user_id = user.id
 
-    db_session.add(Category(user_id=None, name="Food", is_system=True))
+    # Deliberately not "Food"/"Transport"/etc — the real migration seeds
+    # those 8 system categories, and the test DB is now built by running
+    # that migration (see conftest.db_engine), not bare metadata.create_all.
+    name = "ZzzTestOnlyCategory"
+
+    db_session.add(Category(user_id=None, name=name, is_system=True))
     await db_session.commit()
 
     # A second system category with the same name violates the NULL-scoped
     # partial unique index.
-    db_session.add(Category(user_id=None, name="Food", is_system=True))
+    db_session.add(Category(user_id=None, name=name, is_system=True))
     with pytest.raises(IntegrityError):
         await db_session.commit()
     await db_session.rollback()
 
     # A user-owned category with the same name is a different partial index
     # scope, so it's allowed alongside the system one.
-    db_session.add(Category(user_id=user_id, name="Food"))
+    db_session.add(Category(user_id=user_id, name=name))
     await db_session.commit()
 
     # But not duplicated for the same user.
-    db_session.add(Category(user_id=user_id, name="Food"))
+    db_session.add(Category(user_id=user_id, name=name))
     with pytest.raises(IntegrityError):
         await db_session.commit()
     await db_session.rollback()
