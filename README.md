@@ -2,10 +2,15 @@
 
 Voice-first, offline-first AI expense tracker — backend service.
 
-> **Phase 2 status**: the data model is in place — SQLAlchemy models,
-> Pydantic schemas, and one Alembic migration for all 7 tables (see
-> `app/models/`, `app/schemas/`). There are still no expense/sync/parse/
-> billing endpoints; see `app/api/v1/router.py`.
+> **Phase 4 status**: data model (Phase 2), sync API (Phase 3), and the
+> stateless parse pipeline (Phase 4 — `POST /api/v1/parse`,
+> `POST /api/v1/transcribe`) are in place. Still no metering/quota (Phase
+> 5) or FX ingestion (Phase 6); see `app/api/v1/router.py`.
+>
+> The parse endpoints never touch the `expenses` table — see the module
+> docstring in `app/api/v1/parse.py`. LLM/STT/tracing providers are all
+> swappable via config (`LLM_PROVIDER`, `STT_PROVIDER`) — see
+> `app/services/extraction/factory.py` and `app/services/stt/factory.py`.
 
 ## Architecture note: Supabase for Auth/Storage, our own layer for data
 
