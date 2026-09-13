@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import ValidationError
-from sqlalchemy import func, literal_column, select
+from sqlalchemy import case, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,6 +88,16 @@ async def push_sync(
     client_rev on an existing row) returns was_inserted=false so it isn't
     counted either. This endpoint NEVER rejects a record for being over
     quota — metering here is count-and-signal only, never a gate.
+
+    Phase 6 staleness tweak: amount_base/currency_base are a pure function
+    of (amount_original, currency_original, spent_at, base_currency). If an
+    edit changes any of the first three, the previously-stored amount_base
+    is now wrong — and since Phase 6's recompute sweep only ever looks at
+    rows where amount_base IS NULL, a stale non-NULL value would never get
+    revisited. So the same DO UPDATE also nulls amount_base/currency_base
+    whenever one of those columns is actually changing, re-arming the row
+    for the next sweep. This is computed with a SQL CASE in the same
+    statement, not a separate code path or a second query.
     """
     rejects: dict[UUID, str] = {}
     parsed: dict[UUID, ExpenseSyncIn] = {}
@@ -164,11 +174,28 @@ async def push_sync(
                 for r in valid_records
             ]
         )
+        # A change to any of these three invalidates the stored amount_base
+        # (see the staleness-tweak docstring above) — this is a SQLAlchemy
+        # ColumnElement, evaluated per-row inside the single UPDATE, not a
+        # Python-side check (there is no Python-side "old row" to check here).
+        amount_base_is_stale = or_(
+            Expense.amount_original != stmt.excluded.amount_original,
+            Expense.currency_original != stmt.excluded.currency_original,
+            Expense.spent_at != stmt.excluded.spent_at,
+        )
+        set_clause: dict[str, Any] = {
+            col: getattr(stmt.excluded, col) for col in _CLIENT_UPDATE_COLUMNS
+        }
+        set_clause["amount_base"] = case((amount_base_is_stale, None), else_=Expense.amount_base)
+        set_clause["currency_base"] = case(
+            (amount_base_is_stale, None), else_=Expense.currency_base
+        )
+
         # Explicit `Any`: mixing an ORM column with a raw literal_column() in
         # .returning() defeats SQLAlchemy's normal type inference here.
         upsert_stmt: Any = stmt.on_conflict_do_update(
             index_elements=[Expense.id],
-            set_={col: getattr(stmt.excluded, col) for col in _CLIENT_UPDATE_COLUMNS},
+            set_=set_clause,
             where=Expense.client_rev < stmt.excluded.client_rev,
         ).returning(
             Expense.id, Expense.server_seq, literal_column("(xmax = 0)").label("was_inserted")

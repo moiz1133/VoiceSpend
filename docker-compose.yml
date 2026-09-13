@@ -50,5 +50,48 @@ services:
         condition: service_healthy
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  worker:
+    build:
+      context: .
+      target: dev
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voicespend:voicespend@postgres:5432/voicespend
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - .:/app
+      - /app/.venv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # -A takes module:attr — celery_app.py defines `celery_app`, not the
+    # bare-module convention celery's CLI otherwise assumes.
+    command: sh -c "echo 'voicespend celery worker starting' && uv run celery -A app.worker.celery_app:celery_app worker --loglevel=info"
+
+  beat:
+    build:
+      context: .
+      target: dev
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://voicespend:voicespend@postgres:5432/voicespend
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - .:/app
+      - /app/.venv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Deliberately a separate service from `worker` — beat only schedules
+    # tasks, it never executes them, so it should never share a container
+    # (or crash domain) with the worker that does.
+    command: uv run celery -A app.worker.celery_app:celery_app beat --loglevel=info
+
 volumes:
   pgdata:

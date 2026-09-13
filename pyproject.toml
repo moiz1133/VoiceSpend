@@ -22,6 +22,7 @@ dependencies = [
     "groq>=0.13.0",
     "deepgram-sdk>=3.7.0",
     "langfuse>=2.53.0",
+    "celery[redis]>=5.4.0",
 ]
 
 [dependency-groups]
@@ -60,7 +61,7 @@ disallow_untyped_defs = true
 exclude = ["alembic/"]
 
 [[tool.mypy.overrides]]
-module = ["supabase.*", "groq.*", "deepgram.*", "langfuse.*"]
+module = ["supabase.*", "groq.*", "deepgram.*", "langfuse.*", "celery.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

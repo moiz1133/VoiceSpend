@@ -2,16 +2,19 @@
 
 Voice-first, offline-first AI expense tracker — backend service.
 
-> **Phase 5 status**: data model (Phase 2), sync API (Phase 3), the
-> stateless parse pipeline (Phase 4), and metering/entitlements (Phase 5 —
-> free-tier quota gating on `/parse`/`/transcribe`, entitlement resolution,
-> and the RevenueCat webhook at `POST /api/v1/webhooks/revenuecat`) are in
-> place. Still no FX ingestion (Phase 6); see `app/api/v1/router.py`.
+> **Phase 6 status**: data model (Phase 2), sync API (Phase 3), the
+> stateless parse pipeline (Phase 4), metering/entitlements (Phase 5), and
+> FX ingestion (Phase 6 — a daily Celery beat job that pulls FX rates into
+> `fx_rates`, a manual backfill task, and a sweep that fills the
+> `amount_base` NULLs the parse pipeline leaves behind) are all in place.
+> No new HTTP endpoints in Phase 6 — see `app/worker/` and
+> `app/services/fx/`.
 >
 > The parse endpoints never touch the `expenses` table — see the module
-> docstring in `app/api/v1/parse.py`. LLM/STT/tracing providers are all
-> swappable via config (`LLM_PROVIDER`, `STT_PROVIDER`) — see
-> `app/services/extraction/factory.py` and `app/services/stt/factory.py`.
+> docstring in `app/api/v1/parse.py`. LLM/STT/FX/tracing providers are all
+> swappable via config (`LLM_PROVIDER`, `STT_PROVIDER`, `FX_PROVIDER`) —
+> see `app/services/extraction/factory.py`, `app/services/stt/factory.py`,
+> and `app/services/fx/factory.py`.
 >
 > **Quota never blocks logging.** `POST /api/v1/sync` always accepts and
 > stores valid records, even far over quota — metering only counts and
@@ -20,6 +23,17 @@ Voice-first, offline-first AI expense tracker — backend service.
 > is the paid LLM/STT call on `/parse` and `/transcribe`, to protect unit
 > economics — see `app/services/metering/` and
 > `app/services/entitlements/resolver.py`.
+>
+> **FX rates are USD-pivot and never synthesized for gaps.** Every
+> provider payload is normalized to `rate_per_usd` before it's stored (see
+> `app/services/fx/ingest.py`), with an exact `rate_per_usd('USD')=1`
+> self-row always written. Weekend/holiday gaps are left as genuine gaps —
+> `app/services/currency/converter.py` already falls back to the latest
+> rate on or before the requested date, so nothing downstream needs to
+> know a gap happened. `expenses.amount_base` NULLs get filled by
+> `app/services/fx/recompute.py` via a plain SQL `UPDATE`, so the
+> `expenses.server_seq` trigger fires and the enriched row is pulled by
+> every device on its next `/api/v1/sync`.
 
 ## Architecture note: Supabase for Auth/Storage, our own layer for data
 
@@ -77,6 +91,28 @@ docker compose up -d postgres redis
 uv sync
 uv run uvicorn app.main:app --reload
 ```
+
+## Background jobs (Celery)
+
+`docker compose up` also brings up two Celery services sharing the API
+image: `worker` (executes tasks) and `beat` (schedules them) — kept as
+separate containers deliberately, since beat only schedules and should
+never share a crash domain with the process that actually runs tasks.
+The broker is Redis, on a separate DB index from the app's cache (see
+`Settings.celery_broker_url`); no result backend is configured.
+
+- `app/worker/tasks/fx.py:ingest_daily_fx` — beat-scheduled (`FX_INGEST_HOUR_UTC`,
+  default 06:00 UTC). Pulls the latest rates, normalizes and upserts them,
+  then chains `recompute_amount_base`.
+- `app/worker/tasks/fx.py:recompute_amount_base` — fills `expenses.amount_base`
+  NULLs in bounded batches (`FX_RECOMPUTE_BATCH`, default 500 rows/run).
+- `app/worker/tasks/fx.py:backfill_fx_range` — manual seed/backfill for a
+  date range, idempotent (safe to re-run over an overlapping range):
+
+  ```bash
+  docker compose exec worker uv run celery -A app.worker.celery_app:celery_app call \
+    app.worker.tasks.fx.backfill_fx_range --args '["2026-08-01", "2026-09-13"]'
+  ```
 
 ## Migrations
 
