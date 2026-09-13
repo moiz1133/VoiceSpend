@@ -31,6 +31,13 @@ from app.db.session import get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Device, User  # noqa: E402
 from app.schemas.enums import Platform  # noqa: E402
+from app.worker.celery_app import celery_app  # noqa: E402
+
+# Tests call Celery tasks (app.worker.tasks.fx) directly or via .delay() —
+# eager mode runs them synchronously in-process instead of publishing to a
+# real broker, so the test suite never needs Redis reachable for this.
+celery_app.conf.task_always_eager = True
+celery_app.conf.task_eager_propagates = True
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
 

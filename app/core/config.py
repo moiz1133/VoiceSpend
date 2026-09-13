@@ -68,6 +68,21 @@ class Settings(BaseSettings):
     # Blank disables the webhook entirely (every request gets 401).
     REVENUECAT_WEBHOOK_AUTH: str = ""
 
+    # FX ingestion (Phase 6). Provider/key are config, never hardcoded —
+    # see app/services/fx/factory.py.
+    FX_PROVIDER: Literal["exchangerate_host"] = "exchangerate_host"
+    FX_PROVIDER_API_KEY: str = ""
+    # UTC hour the daily ingest beat task fires (0-23).
+    FX_INGEST_HOUR_UTC: int = 6
+    # Max expenses.amount_base NULLs recomputed per task run — keeps each
+    # sweep a bounded transaction rather than one giant backlog drain.
+    FX_RECOMPUTE_BATCH: int = 500
+
+    # Celery (Phase 6) — broker only, no result backend needed for these
+    # tasks. Leave blank to derive from REDIS_URL (see celery_broker_url)
+    # on a separate DB index so broker keys never collide with the cache's.
+    CELERY_BROKER_URL: str = ""
+
     @property
     def cors_origins(self) -> list[str]:
         if self.CORS_ALLOW_ORIGINS.strip() == "*":
@@ -77,6 +92,13 @@ class Settings(BaseSettings):
     @property
     def supabase_issuer(self) -> str:
         return self.SUPABASE_JWT_ISSUER or f"{self.SUPABASE_URL.rstrip('/')}/auth/v1"
+
+    @property
+    def celery_broker_url(self) -> str:
+        if self.CELERY_BROKER_URL:
+            return self.CELERY_BROKER_URL
+        base = self.REDIS_URL.rsplit("/", 1)[0]
+        return f"{base}/1"
 
 
 @lru_cache
