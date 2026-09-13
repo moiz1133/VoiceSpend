@@ -9,6 +9,7 @@ from app.models.expense import Expense
 from app.models.fx_rate import FxRate
 from app.models.usage_counter import UsageCounter
 from app.models.user import User
+from app.models.webhook_event import ProcessedWebhookEvent
 
 __all__ = [
     "Category",
@@ -16,6 +17,7 @@ __all__ = [
     "Entitlement",
     "Expense",
     "FxRate",
+    "ProcessedWebhookEvent",
     "UsageCounter",
     "User",
 ]

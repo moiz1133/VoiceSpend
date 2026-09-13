@@ -25,12 +25,14 @@ from app.core.config import get_settings
 from app.core.tracing import current_trace_id, traced_operation
 from app.db.session import get_db
 from app.models import Category, User
+from app.schemas.entitlement import EntitlementSignal
 from app.schemas.parse import ExtractionOut, ParseRequest, ParseResponse, TranscribeResponse
 from app.services.currency.converter import convert
 from app.services.extraction.base import ExtractionContext, ExtractionResult, LLMExtractor
 from app.services.extraction.factory import get_extractor
 from app.services.extraction.prompt import PROMPT_VERSION
 from app.services.extraction.schema import RawExtraction
+from app.services.metering.signal import build_entitlement_signal
 from app.services.stt.base import STTProvider
 from app.services.stt.factory import get_stt_provider
 
@@ -103,6 +105,7 @@ async def _run_extraction(
     db: AsyncSession,
     reference_time: datetime,
     extractor: LLMExtractor,
+    entitlement: EntitlementSignal,
 ) -> ParseResponse:
     settings = get_settings()
     known_categories = await _known_category_names(db)
@@ -147,7 +150,9 @@ async def _run_extraction(
         )
         root.update(output={"status": status}, metadata={"status": status})
 
-    return ParseResponse(status=status, extraction=extraction, trace_id=trace_id)
+    return ParseResponse(
+        status=status, extraction=extraction, trace_id=trace_id, entitlement=entitlement
+    )
 
 
 async def _to_response(
@@ -193,9 +198,23 @@ async def parse_expense(
             detail=f"text exceeds the {settings.PARSE_MAX_TEXT_LENGTH}-character limit",
         )
 
+    # Quota gates the paid LLM call only — never the sync endpoint. Pro
+    # users always get quota=None/over_quota=False from the signal, so this
+    # never gates them regardless of how much they've logged.
+    entitlement = await build_entitlement_signal(db, user)
+    if entitlement.over_quota:
+        return ParseResponse(
+            status="quota_exceeded", extraction=None, trace_id=None, entitlement=entitlement
+        )
+
     reference_time = payload.reference_time or datetime.now(UTC)
     return await _run_extraction(
-        text=payload.text, user=user, db=db, reference_time=reference_time, extractor=extractor
+        text=payload.text,
+        user=user,
+        db=db,
+        reference_time=reference_time,
+        extractor=extractor,
+        entitlement=entitlement,
     )
 
 
@@ -229,6 +248,20 @@ async def transcribe_expense(
 
     mime_type = audio.content_type or "application/octet-stream"
 
+    # Gate the whole paid pipeline BEFORE spending on STT — a free user over
+    # quota shouldn't cost us a transcription call just to then discard its
+    # output for the LLM step. transcript is empty since STT never ran.
+    entitlement = await build_entitlement_signal(db, user)
+    if entitlement.over_quota:
+        del audio_bytes
+        return TranscribeResponse(
+            status="quota_exceeded",
+            extraction=None,
+            trace_id=None,
+            entitlement=entitlement,
+            transcript="",
+        )
+
     with traced_operation(
         "transcribe_audio", as_type="generation", model=stt.model_name
     ) as stt_span:
@@ -239,7 +272,11 @@ async def transcribe_expense(
         except Exception as exc:  # noqa: BLE001 - STT failure -> failed, not 500
             stt_span.update(metadata={"provider": stt.provider_name, "error": str(exc)})
             return TranscribeResponse(
-                status="failed", extraction=None, trace_id=current_trace_id(), transcript=""
+                status="failed",
+                extraction=None,
+                trace_id=current_trace_id(),
+                transcript="",
+                entitlement=entitlement,
             )
 
         stt_span.update(
@@ -258,5 +295,6 @@ async def transcribe_expense(
         db=db,
         reference_time=resolved_reference_time,
         extractor=extractor,
+        entitlement=entitlement,
     )
     return TranscribeResponse(**parse_result.model_dump(), transcript=transcript.text)

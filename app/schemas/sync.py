@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas._validators import normalize_currency_code
+from app.schemas.entitlement import EntitlementSignal
 from app.schemas.enums import ParseStatus, SyncRecordStatus
 
 MAX_PUSH_BATCH_SIZE = 500
@@ -65,6 +66,10 @@ class SyncPushResult(BaseModel):
 class SyncPushResponse(BaseModel):
     results: list[SyncPushResult]
     server_high_water: int
+    # Usage/upgrade-nudge signal — see app/services/metering/signal.py. Never
+    # gates this endpoint; it's purely informational (the SACRED RULE: sync
+    # always accepts and stores valid records regardless of quota).
+    entitlement: EntitlementSignal
 
 
 class ExpenseSyncOut(BaseModel):

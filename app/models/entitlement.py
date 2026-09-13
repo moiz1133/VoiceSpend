@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -42,3 +42,9 @@ class Entitlement(UUIDMixin, TimestampMixin, Base):
     current_period_end: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Ordering guard for out-of-order webhook redelivery: the RevenueCat
+    # `event_timestamp_ms` of the last event that actually changed this row.
+    # An incoming event older than this is stale and its state change is
+    # skipped (see app/api/v1/webhooks.py) — RevenueCat does not guarantee
+    # delivery order.
+    last_event_ts_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
