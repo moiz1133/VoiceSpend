@@ -2,15 +2,24 @@
 
 Voice-first, offline-first AI expense tracker — backend service.
 
-> **Phase 4 status**: data model (Phase 2), sync API (Phase 3), and the
-> stateless parse pipeline (Phase 4 — `POST /api/v1/parse`,
-> `POST /api/v1/transcribe`) are in place. Still no metering/quota (Phase
-> 5) or FX ingestion (Phase 6); see `app/api/v1/router.py`.
+> **Phase 5 status**: data model (Phase 2), sync API (Phase 3), the
+> stateless parse pipeline (Phase 4), and metering/entitlements (Phase 5 —
+> free-tier quota gating on `/parse`/`/transcribe`, entitlement resolution,
+> and the RevenueCat webhook at `POST /api/v1/webhooks/revenuecat`) are in
+> place. Still no FX ingestion (Phase 6); see `app/api/v1/router.py`.
 >
 > The parse endpoints never touch the `expenses` table — see the module
 > docstring in `app/api/v1/parse.py`. LLM/STT/tracing providers are all
 > swappable via config (`LLM_PROVIDER`, `STT_PROVIDER`) — see
 > `app/services/extraction/factory.py` and `app/services/stt/factory.py`.
+>
+> **Quota never blocks logging.** `POST /api/v1/sync` always accepts and
+> stores valid records, even far over quota — metering only counts and
+> returns an `entitlement` signal block (see `app/schemas/entitlement.py`)
+> that the client uses to show an upgrade nudge. The only thing quota gates
+> is the paid LLM/STT call on `/parse` and `/transcribe`, to protect unit
+> economics — see `app/services/metering/` and
+> `app/services/entitlements/resolver.py`.
 
 ## Architecture note: Supabase for Auth/Storage, our own layer for data
 
@@ -72,10 +81,13 @@ uv run uvicorn app.main:app --reload
 ## Migrations
 
 Migrations run with Alembic, configured for the async engine
-(`alembic/env.py`). The single initial migration creates all 7 tables
+(`alembic/env.py`). The initial migration creates all 7 tables
 (`users`, `devices`, `expenses`, `categories`, `fx_rates`, `entitlements`,
 `usage_counters`) with their indexes and constraints, and seeds the 8
-default system categories.
+default system categories. Later migrations add the `expenses.server_seq`
+sync cursor (Phase 3) and `processed_webhook_events` +
+`entitlements.last_event_ts_ms` (Phase 5, for the RevenueCat webhook's
+idempotency and ordering guarantees).
 
 ```bash
 uv run alembic upgrade head                                  # apply migrations

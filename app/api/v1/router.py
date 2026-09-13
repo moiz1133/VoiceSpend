@@ -2,11 +2,12 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import health, parse, sync
+from app.api.v1 import health, parse, sync, webhooks
 
 api_router = APIRouter()
 api_router.include_router(health.router, prefix="/health")
 api_router.include_router(sync.router)
 api_router.include_router(parse.router)
+api_router.include_router(webhooks.router)
 
-# TODO(Phase 5+): metering/quota, FX ingestion, and billing routers land here.
+# TODO(Phase 6+): FX ingestion and further billing providers land here.

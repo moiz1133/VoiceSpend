@@ -11,7 +11,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ParseStatusLiteral = Literal["ok", "low_confidence", "failed"]
+from app.schemas.entitlement import EntitlementSignal
+
+# "quota_exceeded" (Phase 5): the free-tier monthly quota was already met,
+# so the LLM/STT was never called — see app/api/v1/parse.py.
+ParseStatusLiteral = Literal["ok", "low_confidence", "failed", "quota_exceeded"]
 
 
 class ParseRequest(BaseModel):
@@ -38,6 +42,7 @@ class ParseResponse(BaseModel):
     status: ParseStatusLiteral
     extraction: ExtractionOut | None
     trace_id: str | None = None
+    entitlement: EntitlementSignal
 
 
 class TranscribeResponse(ParseResponse):

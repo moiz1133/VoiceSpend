@@ -3,12 +3,12 @@
 cursor mechanism these rely on.
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,8 @@ from app.schemas.sync import (
     SyncPushResponse,
     SyncPushResult,
 )
+from app.services.metering.signal import build_entitlement_signal
+from app.services.metering.usage import current_period, increment_usage
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -76,6 +78,16 @@ async def push_sync(
     The actual upsert is a single bulk INSERT ... ON CONFLICT DO UPDATE —
     never a per-record loop — so it stays one round trip and the WHERE on
     the DO UPDATE makes replaying the same batch a true no-op.
+
+    Metering (Phase 5) rides on that same idempotency for free: RETURNING
+    `(xmax = 0)` tells us, per returned row, whether Postgres actually
+    INSERTed it (xmax = 0) versus reached it via the DO UPDATE path. Only
+    genuinely new rows count against the free-tier monthly quota — a
+    replayed batch returns no rows for already-applied records (they fail
+    the client_rev WHERE) so it can never double-count, and an edit (higher
+    client_rev on an existing row) returns was_inserted=false so it isn't
+    counted either. This endpoint NEVER rejects a record for being over
+    quota — metering here is count-and-signal only, never a gate.
     """
     rejects: dict[UUID, str] = {}
     parsed: dict[UUID, ExpenseSyncIn] = {}
@@ -152,14 +164,22 @@ async def push_sync(
                 for r in valid_records
             ]
         )
-        upsert_stmt = stmt.on_conflict_do_update(
+        # Explicit `Any`: mixing an ORM column with a raw literal_column() in
+        # .returning() defeats SQLAlchemy's normal type inference here.
+        upsert_stmt: Any = stmt.on_conflict_do_update(
             index_elements=[Expense.id],
             set_={col: getattr(stmt.excluded, col) for col in _CLIENT_UPDATE_COLUMNS},
             where=Expense.client_rev < stmt.excluded.client_rev,
-        ).returning(Expense.id, Expense.server_seq)
+        ).returning(
+            Expense.id, Expense.server_seq, literal_column("(xmax = 0)").label("was_inserted")
+        )
 
         result = await db.execute(upsert_stmt)
-        applied = {row.id: row.server_seq for row in result.all()}
+        rows = result.all()
+        applied = {row.id: row.server_seq for row in rows}
+        new_count = sum(1 for row in rows if row.was_inserted)
+        if new_count:
+            await increment_usage(db, user.id, current_period(), new_count)
         await db.commit()
 
     results = []
@@ -181,7 +201,11 @@ async def push_sync(
         else:
             results.append(SyncPushResult(id=record_id, status=SyncRecordStatus.STALE_IGNORED))
 
-    return SyncPushResponse(results=results, server_high_water=await _high_water(db, user.id))
+    return SyncPushResponse(
+        results=results,
+        server_high_water=await _high_water(db, user.id),
+        entitlement=await build_entitlement_signal(db, user),
+    )
 
 
 @router.get("", response_model=SyncPullResponse)

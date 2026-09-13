@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
     LANGFUSE_CAPTURE_TRANSCRIPT: bool = True
 
+    # Metering & entitlements (Phase 5). Quota gates paid LLM/STT calls on
+    # /parse and /transcribe only — it NEVER blocks /api/v1/sync.
+    FREE_MONTHLY_LOG_QUOTA: int = 20
+
+    # Shared secret RevenueCat sends as a plain Authorization header value
+    # (configured in the RevenueCat dashboard) — not an HMAC signature.
+    # Blank disables the webhook entirely (every request gets 401).
+    REVENUECAT_WEBHOOK_AUTH: str = ""
+
     @property
     def cors_origins(self) -> list[str]:
         if self.CORS_ALLOW_ORIGINS.strip() == "*":
