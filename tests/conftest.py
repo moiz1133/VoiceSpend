@@ -21,6 +21,7 @@ from alembic import command
 os.environ.setdefault(
     "DATABASE_URL", "postgresql+asyncpg://voicespend:voicespend@localhost:5432/voicespend"
 )
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")

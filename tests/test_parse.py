@@ -26,6 +26,8 @@ from app.services.extraction.schema import RawExtraction
 from app.services.stt.base import STTProvider, Transcript
 from app.services.stt.factory import get_stt_provider
 
+pytestmark = pytest.mark.pg
+
 USER_SUB = "supabase|parse-user"
 
 

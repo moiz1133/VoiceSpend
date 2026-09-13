@@ -29,7 +29,10 @@ class RawExtraction(BaseModel):
     turns this into the response the client sees.
     """
 
-    amount: float | None = None
+    # ge=0: a negative expense amount isn't a valid extraction — reject it
+    # at the schema layer (raises, caught by the provider as a malformed-
+    # output failure) rather than silently persisting a nonsensical value.
+    amount: float | None = Field(default=None, ge=0)
     currency: str | None = None
     category: str | None = None
     payment_method: str | None = None

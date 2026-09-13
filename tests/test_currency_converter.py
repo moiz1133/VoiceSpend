@@ -7,11 +7,13 @@ case here must resolve to None, never an exception.
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import FxRate
 from app.services.currency.converter import convert
 
+pytestmark = pytest.mark.pg
 
 async def test_same_currency_short_circuits(db_session: AsyncSession) -> None:
     result = await convert(db_session, Decimal("10.00"), "USD", "USD", date(2026, 1, 1))

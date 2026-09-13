@@ -7,6 +7,7 @@ No get_current_user involved; this is server-to-server.
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,8 @@ from app.main import create_app
 from app.models import Entitlement, ProcessedWebhookEvent, User
 from app.schemas.enums import EntitlementStatus, Tier
 from app.services.entitlements.resolver import resolve_entitlement
+
+pytestmark = pytest.mark.pg
 
 WEBHOOK_SECRET = "test-webhook-secret"
 

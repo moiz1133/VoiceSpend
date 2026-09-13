@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Device, Expense, User
 from app.worker.tasks import fx as fx_tasks
 
+pytestmark = pytest.mark.pg
 
 class _FailingProvider:
     provider_name = "failing"

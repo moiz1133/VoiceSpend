@@ -2,12 +2,14 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Entitlement, User
 from app.schemas.enums import EntitlementStatus, Tier
 from app.services.entitlements.resolver import resolve_entitlement
 
+pytestmark = pytest.mark.pg
 
 async def test_no_entitlement_row_resolves_to_free(db_session: AsyncSession, user: User) -> None:
     effective = await resolve_entitlement(db_session, user)

@@ -23,6 +23,7 @@ dependencies = [
     "deepgram-sdk>=3.7.0",
     "langfuse>=2.53.0",
     "celery[redis]>=5.4.0",
+    "prometheus-client>=0.21.0",
 ]
 
 [dependency-groups]
@@ -69,3 +70,6 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
+markers = [
+    "pg: dialect-specific integration test — needs a real Postgres (xmax, triggers, ON CONFLICT, partial indexes, etc; SQLite would lie about all of these).",
+]

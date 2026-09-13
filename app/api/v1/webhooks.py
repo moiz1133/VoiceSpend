@@ -37,6 +37,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.metrics import record_webhook_event
 from app.db.session import get_db
 from app.models import Entitlement, ProcessedWebhookEvent, User
 from app.schemas.enums import EntitlementStatus, Store, Tier
@@ -147,17 +148,20 @@ async def revenuecat_webhook(
     )
     if inserted.first() is None:
         await db.commit()
+        record_webhook_event(event_type=event.type, outcome="duplicate")
         return {"status": "already_processed"}
 
     try:
         user_id = UUID(event.app_user_id)
     except ValueError:
         await db.commit()
+        record_webhook_event(event_type=event.type, outcome="unmatched")
         return {"status": "ignored_unmapped_user"}
 
     user_result = await db.execute(select(User.id).where(User.id == user_id))
     if user_result.scalar_one_or_none() is None:
         await db.commit()
+        record_webhook_event(event_type=event.type, outcome="unmatched")
         return {"status": "ignored_unmapped_user"}
 
     entitlement_result = await db.execute(
@@ -170,11 +174,13 @@ async def revenuecat_webhook(
         and event.event_timestamp_ms < entitlement.last_event_ts_ms
     ):
         await db.commit()
+        record_webhook_event(event_type=event.type, outcome="stale")
         return {"status": "ignored_stale_event"}
 
     state = _EVENT_STATE.get(event.type)
     if state is None:
         await db.commit()
+        record_webhook_event(event_type=event.type, outcome="unmatched")
         return {"status": "ignored_unhandled_event_type"}
 
     tier, status = state
@@ -182,4 +188,5 @@ async def revenuecat_webhook(
         db, user_id=user_id, event=event, tier=tier, status=status
     )
     await db.commit()
+    record_webhook_event(event_type=event.type, outcome="applied")
     return {"status": "processed"}

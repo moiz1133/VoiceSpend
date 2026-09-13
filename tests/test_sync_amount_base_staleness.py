@@ -8,6 +8,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,8 @@ from app.db.session import get_db
 from app.main import create_app
 from app.models import Device, Expense, User
 from app.schemas.enums import Platform
+
+pytestmark = pytest.mark.pg
 
 USER_SUB = "supabase|staleness-user"
 

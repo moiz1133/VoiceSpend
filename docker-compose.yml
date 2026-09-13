@@ -34,6 +34,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://voicespend:voicespend@postgres:5432/voicespend
       REDIS_URL: redis://redis:6379/0
+      # Own-container-local dir (never shared with worker/beat — see the
+      # multiprocess-mode note in app/core/metrics.py and
+      # app/worker/celery_app.py for why sharing it across containers
+      # would collide on PID-based filenames).
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
     ports:
       - "8000:8000"
     volumes:
@@ -59,6 +64,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://voicespend:voicespend@postgres:5432/voicespend
       REDIS_URL: redis://redis:6379/0
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+    ports:
+      # This worker's OWN metrics (fx_last_successful_ingest_timestamp,
+      # fx_ingest_failure_total, etc.) — a separate scrape target from the
+      # api's /metrics, never the same PROMETHEUS_MULTIPROC_DIR. See
+      # app/worker/celery_app.py.
+      - "9808:9808"
     volumes:
       - .:/app
       - /app/.venv
@@ -90,7 +102,9 @@ services:
         condition: service_healthy
     # Deliberately a separate service from `worker` — beat only schedules
     # tasks, it never executes them, so it should never share a container
-    # (or crash domain) with the worker that does.
+    # (or crash domain) with the worker that does. No PROMETHEUS_MULTIPROC_DIR
+    # here: beat enqueues tasks but never runs task bodies, so it never
+    # increments a metric itself.
     command: uv run celery -A app.worker.celery_app:celery_app beat --loglevel=info
 
 volumes:

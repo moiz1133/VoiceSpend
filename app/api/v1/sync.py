@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_db_user
+from app.core.metrics import record_sync_push_new, record_sync_push_result
 from app.db.session import get_db
 from app.models import Device, Expense, User
 from app.schemas.enums import SyncRecordStatus
@@ -153,6 +154,7 @@ async def push_sync(
             valid_records.append(record)
 
     applied: dict[UUID, int] = {}
+    new_count = 0
     if valid_records:
         stmt = pg_insert(Expense).values(
             [
@@ -227,6 +229,13 @@ async def push_sync(
             )
         else:
             results.append(SyncPushResult(id=record_id, status=SyncRecordStatus.STALE_IGNORED))
+
+    result_counts: dict[str, int] = {}
+    for r in results:
+        result_counts[r.status.value] = result_counts.get(r.status.value, 0) + 1
+    for status_value, count in result_counts.items():
+        record_sync_push_result(status_value, count)
+    record_sync_push_new(new_count)
 
     return SyncPushResponse(
         results=results,

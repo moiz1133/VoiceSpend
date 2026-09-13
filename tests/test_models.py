@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Category, Device, Entitlement, Expense, FxRate, UsageCounter, User
 from app.schemas.enums import ParseStatus, Platform
 
+pytestmark = pytest.mark.pg
 
 async def test_user_roundtrip_and_defaults(db_session: AsyncSession) -> None:
     user = User(email="alice@example.com", is_anonymous=False)

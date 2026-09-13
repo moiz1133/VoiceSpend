@@ -8,6 +8,7 @@ the actual ON CONFLICT DO UPDATE.
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,8 @@ from app.models import FxRate
 from app.services.currency.converter import convert
 from app.services.fx.base import FXProvider
 from app.services.fx.ingest import backfill_range, ingest_snapshot, normalize_to_usd_pivot
+
+pytestmark = pytest.mark.pg
 
 _SCALE = Decimal("0.00000001")
 

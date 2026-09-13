@@ -1,0 +1,198 @@
+{
+  "title": "SnapExpense — Backend Ops",
+  "uid": "snapexpense-ops",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "utc",
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["snapexpense", "parse", "fx", "billing"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Parse latency (p50/p95/p99, total stage)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum(rate(parse_latency_seconds_bucket{stage=\"total\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum(rate(parse_latency_seconds_bucket{stage=\"total\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum(rate(parse_latency_seconds_bucket{stage=\"total\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Parse status breakdown",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (increase(parse_requests_total[1h]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Parse LLM cost per hour (USD)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider, model) (rate(parse_llm_cost_usd_total[1h]) * 3600)",
+          "legendFormat": "{{provider}}/{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cost per 1,000 new logs (24h, USD) — unit economics",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 15 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(parse_llm_cost_usd_total[24h])) / clamp_min(sum(increase(sync_push_new_total[24h])), 1)) * 1000"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Rate-limited (429) requests / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (endpoint) (rate(rate_limited_total[5m]))",
+          "legendFormat": "{{endpoint}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(rate_limiter_redis_error_total[5m]))",
+          "legendFormat": "redis errors"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "New logs / hour (genuinely new expenses via sync)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(sync_push_new_total[1h]) * 3600)",
+          "legendFormat": "new logs/hour"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (result) (rate(sync_push_records_total[1h]) * 3600)",
+          "legendFormat": "{{result}}/hour"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "FX ingest freshness (hours since last success)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 26 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - max(fx_last_successful_ingest_timestamp)) / 3600"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "FX ingest failures (1h)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(fx_ingest_failure_total[1h]))"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Webhook outcomes / hour",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (event_type, outcome) (rate(webhook_events_total[1h]) * 3600)",
+          "legendFormat": "{{event_type}} / {{outcome}}"
+        }
+      ]
+    }
+  ]
+}
