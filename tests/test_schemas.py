@@ -12,6 +12,7 @@ from app.models import Device, Expense, User
 from app.schemas.expense import ExpenseCreate, ExpenseRead, ExpenseUpdate
 from app.schemas.user import UserRead
 
+pytestmark = pytest.mark.pg
 
 def test_expense_create_normalizes_currency_case() -> None:
     payload = ExpenseCreate(

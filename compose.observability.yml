@@ -1,0 +1,41 @@
+# Optional observability stack for local dashboards — not part of the
+# default `docker compose up`. Bring it up alongside the app with:
+#
+#   docker compose -f docker-compose.yml -f compose.observability.yml up --build
+#
+# Prometheus scrapes the api's /metrics and the worker's standalone
+# metrics server (see prometheus/prometheus.yml). Grafana is
+# pre-provisioned with a Prometheus datasource and the
+# dashboards/snapexpense.json starter dashboard — open
+# http://localhost:3000 (admin/admin) and it's already there, no manual
+# import needed.
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus_data:
+  grafana_data:

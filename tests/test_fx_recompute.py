@@ -9,12 +9,14 @@ enrichment actually propagate to other devices.
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Device, Expense, FxRate, User
 from app.services.fx.recompute import null_amount_base_for_user, recompute_amount_base
 
+pytestmark = pytest.mark.pg
 
 async def _make_expense(
     db_session: AsyncSession,

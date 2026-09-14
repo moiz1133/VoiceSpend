@@ -9,6 +9,7 @@ new expense row counts once; replays, edits, and soft deletes never do.
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,8 @@ from app.main import create_app
 from app.models import Device, UsageCounter, User
 from app.schemas.enums import Platform
 from app.services.metering.usage import current_period
+
+pytestmark = pytest.mark.pg
 
 USER_SUB = "supabase|metering-user"
 

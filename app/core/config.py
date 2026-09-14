@@ -83,6 +83,30 @@ class Settings(BaseSettings):
     # on a separate DB index so broker keys never collide with the cache's.
     CELERY_BROKER_URL: str = ""
 
+    # Rate limiting (Phase 7) — /api/v1/parse and /api/v1/transcribe ONLY.
+    # Never applied to /api/v1/sync or the RevenueCat webhook. Two windows
+    # are always both checked: a per-minute burst limit and a per-day
+    # ceiling. See app/services/ratelimit/.
+    PARSE_RATE_LIMIT: int = 20
+    PARSE_RATE_LIMIT_DAILY: int = 300
+    # If Redis is unreachable: True = allow the request through (the
+    # Phase 5 monthly quota remains the real economic backstop for free
+    # users); False = reject with 503. A conscious config choice, not a
+    # silent default — see app/services/ratelimit/dependency.py.
+    RATE_LIMIT_FAIL_OPEN: bool = True
+
+    # Observability (Phase 7).
+    # Static bearer token required on GET /metrics. Leave blank to leave it
+    # open (fine for local dev / a network already scoped to internal
+    # scrapers only) — see app/api/metrics.py.
+    METRICS_TOKEN: str = ""
+    # Structured logs as one JSON object per line (production default).
+    # False -> a plain human-readable formatter for local dev consoles.
+    LOG_JSON: bool = True
+    # Include the STT transcript text in our own structured logs. Same
+    # gate philosophy as LANGFUSE_CAPTURE_TRANSCRIPT — default off.
+    LOG_CAPTURE_TRANSCRIPT: bool = False
+
     @property
     def cors_origins(self) -> list[str]:
         if self.CORS_ALLOW_ORIGINS.strip() == "*":

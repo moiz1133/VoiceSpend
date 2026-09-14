@@ -9,6 +9,7 @@ not just that the response looks a certain way.
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,8 @@ from app.services.extraction.schema import RawExtraction
 from app.services.metering.usage import current_period
 from app.services.stt.base import STTProvider, Transcript
 from app.services.stt.factory import get_stt_provider
+
+pytestmark = pytest.mark.pg
 
 USER_SUB = "supabase|quota-user"
 

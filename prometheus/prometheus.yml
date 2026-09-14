@@ -1,0 +1,23 @@
+# Prometheus scrape config for local dev (docker compose network, so
+# service names resolve as hostnames). In staging/production, point these
+# at wherever the api/worker containers actually run, and add a
+# `bearer_token` (or `bearer_token_file`) under the api job if
+# METRICS_TOKEN is set — see .env.example.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "voicespend-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+    # bearer_token: "<settings.METRICS_TOKEN, if set>"
+
+  - job_name: "voicespend-worker"
+    # The Celery worker's OWN standalone metrics server (fx_ingest_*,
+    # amount_base recompute) — a separate process/target from the api,
+    # never the same PROMETHEUS_MULTIPROC_DIR. See app/worker/celery_app.py.
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["worker:9808"]

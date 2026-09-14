@@ -2,13 +2,27 @@
 
 Voice-first, offline-first AI expense tracker — backend service.
 
-> **Phase 6 status**: data model (Phase 2), sync API (Phase 3), the
-> stateless parse pipeline (Phase 4), metering/entitlements (Phase 5), and
-> FX ingestion (Phase 6 — a daily Celery beat job that pulls FX rates into
-> `fx_rates`, a manual backfill task, and a sweep that fills the
-> `amount_base` NULLs the parse pipeline leaves behind) are all in place.
-> No new HTTP endpoints in Phase 6 — see `app/worker/` and
-> `app/services/fx/`.
+> **Phase 7 status**: data model (Phase 2), sync API (Phase 3), the
+> stateless parse pipeline (Phase 4), metering/entitlements (Phase 5), FX
+> ingestion (Phase 6), and ops (Phase 7 — per-device rate limiting on the
+> paid endpoints, Prometheus metrics + Grafana dashboard, structured JSON
+> logging with request/trace correlation, and a hardened test suite) are
+> all in place. This is the final backend phase — no new business
+> endpoints in Phase 7, only `GET /metrics` (infra).
+>
+> **Rate limiting protects unit economics, never logging.** A per-device
+> (falling back to per-user) atomic Redis limiter guards ONLY
+> `POST /api/v1/parse` and `POST /api/v1/transcribe` — `/api/v1/sync` and
+> the RevenueCat webhook are never rate limited. Exceeding it returns 429
+> + `Retry-After`, which is a different signal from Phase 5's 200/
+> `quota_exceeded`: 429 means "slow down," `quota_exceeded` means "upgrade."
+> See `app/services/ratelimit/`.
+>
+> **Observability**: `GET /metrics` (Prometheus format, token-guarded via
+> `METRICS_TOKEN`) and a starter Grafana dashboard at
+> `dashboards/snapexpense.json` — see `app/core/metrics.py` for every
+> metric this app emits and the "Background jobs" section below for
+> bringing up Prometheus/Grafana locally.
 >
 > The parse endpoints never touch the `expenses` table — see the module
 > docstring in `app/api/v1/parse.py`. LLM/STT/FX/tracing providers are all
@@ -114,6 +128,49 @@ The broker is Redis, on a separate DB index from the app's cache (see
     app.worker.tasks.fx.backfill_fx_range --args '["2026-08-01", "2026-09-13"]'
   ```
 
+## Observability (Phase 7)
+
+**Metrics**: `GET /metrics` on the api serves Prometheus text format. Set
+`METRICS_TOKEN` and scrape with `Authorization: Bearer <token>` — leaving
+it blank leaves the endpoint open, which is only safe when this service
+is reachable exclusively from a private network. See `app/core/metrics.py`
+for the full metric list (HTTP durations, parse latency/cost/tokens by
+stage, rate-limiter rejections, sync push results, FX ingest freshness,
+webhook outcomes) — every label is a bounded set (route templates,
+provider/model names, fixed status enums), never a user/device/trace id.
+
+The Celery `worker` container also exposes its own metrics on port 9808
+(fx_last_successful_ingest_timestamp, fx_ingest_failure_total) — a
+separate scrape target from the api, since FX metrics are incremented in
+the worker process, not the api process.
+
+**Multiprocess mode**: set `PROMETHEUS_MULTIPROC_DIR` (already wired in
+`docker-compose.yml` for `api` and `worker`, as container-local paths —
+never share this directory between containers or you'll corrupt the
+aggregated metrics, since prometheus_client's per-process filenames are
+PID-based) whenever the api runs with more than one worker process.
+Single-worker dev setups work fine without it.
+
+**Local dashboards**: bring up Prometheus + Grafana alongside the app:
+
+```bash
+docker compose -f docker-compose.yml -f compose.observability.yml up --build
+```
+
+Grafana (`http://localhost:3000`, admin/admin) comes pre-provisioned with
+a Prometheus datasource and the `dashboards/snapexpense.json` starter
+dashboard (parse latency percentiles, cost/hour and cost-per-1k-logs unit
+economics, parse status breakdown, 429 rate, new-logs/hour, FX ingest
+freshness, webhook outcomes) — no manual import needed.
+
+**Structured logging**: JSON lines by default (`LOG_JSON=true`), each
+request's log lines correlated by `request_id` (from an `X-Request-Id`
+header, generated if absent, echoed back) via `app/core/middleware.py`;
+parse requests additionally carry the Langfuse `trace_id` — see
+`app/core/logging.py`. Raw audio and secrets are never logged; the STT
+transcript is logged only when `LOG_CAPTURE_TRANSCRIPT=true` (default
+off), matching `LANGFUSE_CAPTURE_TRANSCRIPT`'s gate philosophy.
+
 ## Migrations
 
 Migrations run with Alembic, configured for the async engine
@@ -137,18 +194,33 @@ have drifted and one of them needs fixing.
 
 ## Tests, lint, types
 
-Model round-trip tests (`tests/test_models.py`, `tests/test_schemas.py`)
-need a real Postgres reachable at `DATABASE_URL` — they build the schema
-straight from the SQLAlchemy models (independent of Alembic) so they catch
-model/DB mismatches directly. Health-check tests use fakes and don't need
-it. Start Postgres first:
+Most of this suite needs a real Postgres reachable at `DATABASE_URL` —
+several invariants (the `xmax` trick behind sync idempotency/metering,
+the `server_seq` trigger, `ON CONFLICT` upserts, partial unique indexes)
+are genuinely dialect-specific and would silently pass-or-lie under
+SQLite. Those tests are marked `@pytest.mark.pg`; a handful of pure-unit
+tests (schema validation, normalization math, the metrics/logging
+formatters) need neither DB nor Redis and aren't marked. Start Postgres
+(and Redis, for the rate-limiter tests) first:
 
 ```bash
-docker compose up -d postgres
-uv run pytest
+docker compose up -d postgres redis
+uv run pytest                # everything
+uv run pytest -m "not pg"    # fast unit-only subset (no DB needed)
+uv run pytest -m pg          # integration subset only
 uv run ruff check .
 uv run mypy app
 ```
+
+`tests/test_sync_idempotency_hardened.py` and `tests/test_parse_fuzz.py`
+are the property/fuzz-style hardening tests for the two highest-risk
+areas: the sync upsert's idempotency (replay counts, randomized
+client_rev ordering, real concurrent pushes via independent connections)
+and the extraction validation boundary (a battery of malformed LLM tool-
+call outputs, asserting every one resolves to a clean `failed` — or
+coerces where safe — and never a 500). `tests/test_response_contracts.py`
+locks down the field set of every client-facing response shape so a
+refactor can't silently break the mobile client's parsing.
 
 ## Environment variables
 

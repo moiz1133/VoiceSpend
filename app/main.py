@@ -7,10 +7,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.metrics import router as metrics_router
 from app.api.v1.router import api_router
 from app.cache.redis import close_redis_client, get_redis_client
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.core.middleware import RequestContextMiddleware
 from app.db.session import dispose_engine, get_engine
 
 logger = logging.getLogger(__name__)
@@ -53,8 +55,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added last -> outermost, so request-id correlation, structured
+    # access logging, and the http_request_duration_seconds histogram
+    # cover every response (CORS preflights included), not just ones that
+    # made it through routing.
+    app.add_middleware(RequestContextMiddleware)
 
     app.include_router(api_router, prefix="/api/v1")
+    # Not versioned/business API — plain infra, kept off /api/v1.
+    app.include_router(metrics_router)
 
     return app
 
